@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 from typing import Any
 
+from langfuse import get_client
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
@@ -16,19 +18,45 @@ from smm_agents.prompts import (
     PUBLISHER_PROMPT,
     STRATEGIST_PROMPT,
 )
+from smm_agents.observability import langfuse_enabled, observe_if_enabled
 from smm_agents.state import SmmState
 
 ProgressCallback = Callable[[str, SmmState], None]
+logger = logging.getLogger("smm_agents")
 
 
-def _invoke_text(llm: BaseChatModel, system_prompt: str, user_prompt: str) -> str:
+@observe_if_enabled(name="llm_call", as_type="generation", capture_input=False, capture_output=False)
+def _invoke_text(
+    llm: BaseChatModel,
+    node_name: str,
+    system_prompt: str,
+    user_prompt: str,
+) -> str:
+    langfuse = get_client() if langfuse_enabled() else None
+    if langfuse:
+        logger.info("Langfuse LLM generation started: node=%s", node_name)
+        langfuse.update_current_generation(
+            name=node_name,
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            model=getattr(llm, "model", None),
+            model_parameters={
+                "temperature": getattr(llm, "temperature", None),
+            },
+        )
     response = llm.invoke(
         [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt),
         ]
     )
-    return str(response.content).strip()
+    text = str(response.content).strip()
+    if langfuse:
+        langfuse.update_current_generation(output=text)
+        logger.info("Langfuse LLM generation finished: node=%s output_chars=%s", node_name, len(text))
+    return text
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -80,6 +108,7 @@ def build_graph(llm: BaseChatModel, on_progress: ProgressCallback | None = None)
     def strategist(state: SmmState) -> dict:
         text = _invoke_text(
             llm,
+            "Strategist",
             STRATEGIST_PROMPT,
             (
                 f"Исходный запрос пользователя:\n{state['user_request']}\n\n"
@@ -100,6 +129,7 @@ def build_graph(llm: BaseChatModel, on_progress: ProgressCallback | None = None)
         task = state["content_plan"][state["current_task_num"]]
         brief = _invoke_text(
             llm,
+            "BriefCreator",
             BRIEF_CREATOR_PROMPT,
             (
                 f"Исходный запрос пользователя:\n{state['user_request']}\n\n"
@@ -130,6 +160,7 @@ def build_graph(llm: BaseChatModel, on_progress: ProgressCallback | None = None)
 
         draft = _invoke_text(
             llm,
+            "Copywriter",
             COPYWRITER_PROMPT,
             (
                 f"Исходный запрос пользователя:\n{state['user_request']}\n\n"
@@ -146,6 +177,7 @@ def build_graph(llm: BaseChatModel, on_progress: ProgressCallback | None = None)
     def editor(state: SmmState) -> dict:
         feedback = _invoke_text(
             llm,
+            "Editor",
             EDITOR_PROMPT,
             (
                 f"Исходный запрос пользователя:\n{state['user_request']}\n\n"
@@ -168,6 +200,7 @@ def build_graph(llm: BaseChatModel, on_progress: ProgressCallback | None = None)
     def publisher(state: SmmState) -> dict:
         final_post = _invoke_text(
             llm,
+            "Publisher",
             PUBLISHER_PROMPT,
             (
                 f"Площадка: {state['platform']}\n\n"

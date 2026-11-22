@@ -32,6 +32,18 @@ uv sync
 uv pip install -r requirements.txt
 ```
 
+Настройте Langfuse через переменные окружения:
+
+```bash
+export LANGFUSE_PUBLIC_KEY="pk-lf-..."
+export LANGFUSE_SECRET_KEY="sk-lf-..."
+export LANGFUSE_HOST="https://cloud.langfuse.com"
+```
+
+Можно также положить эти переменные в локальный `.env` в корне проекта: приложение загрузит его автоматически.
+Для self-hosted Langfuse укажите свой `LANGFUSE_HOST`.
+Если ключи не заданы, приложение продолжит работать, но Langfuse client будет отключен и traces не отправятся.
+
 Запустите локальную модель в Ollama и проверьте `config.json`:
 
 ```json
@@ -69,6 +81,19 @@ uv run smm-agents --request-file request.txt --platform VK
 - общий файл `runs/<run_id>/final.md` обновляется после каждой готовой публикации;
 - промежуточное состояние пишется в `runs/<run_id>/state.partial.json` после каждого шага;
 - полное финальное состояние графа пишется в `runs/<run_id>/state.json`.
+
+Дополнительно запуск трассируется в Langfuse:
+
+- `smm_pipeline` показывает длительность всего пайплайна `graph.invoke`;
+- вложенные `generation`-наблюдения `Strategist`, `BriefCreator`, `Copywriter`, `Editor`, `Publisher` показывают длительность отдельных обращений к LLM;
+- в metadata общего span пишутся `run_id`, модель и лимит циклов доработки.
+
+В консоль и `runs/<run_id>/agent.log` пишутся диагностические сообщения Langfuse:
+
+- `Langfuse enabled: host=...` означает, что ключи найдены и tracing включен;
+- `Langfuse disabled: missing env vars: ...` показывает, каких переменных окружения не хватает;
+- `Langfuse pipeline span started/finished` и `Langfuse LLM generation started/finished` подтверждают создание наблюдений;
+- `Langfuse flush started/finished` подтверждает отправку накопленных событий в конце запуска.
 
 Во время работы можно смотреть лог:
 
