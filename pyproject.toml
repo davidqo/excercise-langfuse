@@ -1,0 +1,22 @@
+[project]
+name = "excercise-langfuse"
+version = "0.1.0"
+description = "Multi-agent SMM workflow with LangGraph and a local configurable LLM."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain-core>=0.3.0",
+    "langchain-ollama>=0.2.0",
+    "langfuse>=5.2.0",
+    "langgraph>=0.2.0",
+]
+
+[project.scripts]
+smm-agents = "smm_agents.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "smm_agents"

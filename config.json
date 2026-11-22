@@ -1,0 +1,16 @@
+{
+  "model": {
+    "provider": "ollama",
+    "model": "local-qwen",
+    "base_url": "http://192.168.1.120:11434",
+    "temperature": 0.4
+  },
+  "workflow": {
+    "max_revision_cycles": 3,
+    "default_platform": "VK"
+  },
+  "output": {
+    "runs_dir": "runs",
+    "log_file": "agent.log"
+  }
+}
