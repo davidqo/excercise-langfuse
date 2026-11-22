@@ -25,6 +25,27 @@ ProgressCallback = Callable[[str, SmmState], None]
 logger = logging.getLogger("smm_agents")
 
 
+def _extract_usage_details(response: Any) -> dict[str, int]:
+    usage = getattr(response, "usage_metadata", None) or {}
+    input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
+    total_tokens = usage.get("total_tokens")
+
+    response_metadata = getattr(response, "response_metadata", None) or {}
+    if input_tokens is None:
+        input_tokens = response_metadata.get("prompt_eval_count")
+    if output_tokens is None:
+        output_tokens = response_metadata.get("eval_count")
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens
+
+    return {
+        "input": int(input_tokens or 0),
+        "output": int(output_tokens or 0),
+        "total": int(total_tokens or 0),
+    }
+
+
 @observe_if_enabled(name="llm_call", as_type="generation", capture_input=False, capture_output=False)
 def _invoke_text(
     llm: BaseChatModel,
@@ -53,9 +74,20 @@ def _invoke_text(
         ]
     )
     text = str(response.content).strip()
+    usage_details = _extract_usage_details(response)
     if langfuse:
-        langfuse.update_current_generation(output=text)
-        logger.info("Langfuse LLM generation finished: node=%s output_chars=%s", node_name, len(text))
+        langfuse.update_current_generation(
+            output=text,
+            usage_details=usage_details,
+        )
+        logger.info(
+            "Langfuse LLM generation finished: node=%s output_chars=%s tokens=%s",
+            node_name,
+            len(text),
+            usage_details,
+        )
+    elif any(usage_details.values()):
+        logger.info("LLM token usage captured: node=%s tokens=%s", node_name, usage_details)
     return text
 
 
